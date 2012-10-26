@@ -64,7 +64,9 @@ func execute(path string, vcs string, vcs_verb string) {
 		cmd.Path = path
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			fmt.Printf(color.Sprint(msg)+"\n%s\n%s\n\n", out, err)
+			br := color.Colorize("!r")
+			rst := color.Colorize("|")
+			fmt.Printf(color.Sprint(msg)+"\n%s\n%s%s%s\n\n", out, br, err, rst)
 		} else {
 			fmt.Printf(color.Sprint(msg)+"\n%s\n", out)
 		}
