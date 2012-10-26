@@ -81,7 +81,7 @@ func execute(path string, vcs string, vcs_verb string) {
 }
 
 func visit(path string, f os.FileInfo, err error) error {
-	if !f.IsDir() {
+	if f == nil && !f.IsDir() {
 		return nil
 	}
 	entries, err := ioutil.ReadDir(path)
