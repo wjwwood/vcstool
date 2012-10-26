@@ -139,6 +139,11 @@ func main() {
 		path = flag.Arg(1)
 	}
 
+	// If there are more arguments, error
+	if flag.NArg() > 2 {
+		log.Fatal("Too many arugments")
+	}
+
 	// Walk the directory
 	count = 0
 	fmt.Println("Walking: ", path)
