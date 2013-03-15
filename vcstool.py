@@ -6,76 +6,55 @@ import argparse
 import os
 import subprocess
 import sys
+import rosinstall.multiproject_cmd as multiproject_cmd
+import os
+from rosinstall.config import Config, realpath_relation
+from rosinstall.config_yaml import PathSpec
+
+_PULL = 'pull'
+_DIFF = 'diff'
+_STAT = 'status'
+_PUSH = 'push'
 
 verbs = [
-    'pull',
-    'diff',
-    'status',
-    'push'
+    _PUSH,
+    _DIFF,
+    _STAT,
+    _PUSH
 ]
 
-git_cmds = {
-    'pull':   'git pull',
-    'diff':   'git diff',
-    'status': 'git status',
-    'push':   'git push',
-}
-
-hg_cmds = {
-    'pull':   'hg pull -u',
-    'diff':   'hg diff',
-    'status': 'hg status',
-    'push':   'hg push',
-}
-
-svn_cmds = {
-    'pull':   'svn up',
-    'diff':   'svn diff',
-    'status': 'svn status',
-    'push':   '',
-}
-
-cmds = {
-    'git': git_cmds,
-    'hg': hg_cmds,
-    'svn': svn_cmds
-}
-
-vcs_files = {
+VCS_FILES = {
     'git': '.git',
     'hg': '.hg',
     'svn': '.svn',
 }
 
-jobs = {}
+
+# TODO use vcstools
+def get_path_specs_from_filesystem(directory):
+    path_specs = []
+    for root, dirs, files in os.walk(directory, topdown=True):
+        for vcs_type, vcs_file in VCS_FILES.items():
+            if vcs_file in dirs or vcs_file in files:
+                for dir_name in list(dirs):
+                    # Do not process subdirectories
+                    dirs.remove(dir_name)
+                path_specs.append(PathSpec(local_name=root, scmtype=vcs_type, path=root, uri='/<not set>'))
+                break
+    return path_specs
 
 
-def find(file_name):
-    path = os.getenv('PATH')
-    for directory in path.split(':'):
-        file_path = os.path.join(directory, file_name)
-        if os.path.isfile(file_path):
-            return file_path
-    raise OSError("Could not find {0}: No such file or ".format(file_name) +
-                  "directory")
-
-
-def kick_off(vcs_type, verb, directory):
-    global jobs
-    cmd = cmds[vcs_type][verb].split()
-    if not cmd:
-        cmd = ['echo', '"' + verb + ' Not implemented for ' + vcs_type + '"']
-    cmd[0] = find(cmd[0])
-    p = subprocess.Popen(cmd, shell=False, cwd=directory,
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    jobs[p.pid] = {
-        'name': os.path.basename(os.path.normpath(directory)),
-        'type': vcs_type,
-        'p': p
-    }
+def get_filesystem_config(basepath):
+    base_path_specs = get_path_specs_from_filesystem(basepath)
+    config = Config(base_path_specs, basepath)
+    return config
 
 
 def main(sysargs=None):
+    '''
+    Lightweight recursive vcs invocation tool.
+    will call given command type on all SCm directories it finds under a given folder.
+    '''
     global jobs
     parser = argparse.ArgumentParser(description="Batch VCS abstraction tool")
     add = parser.add_argument
@@ -86,37 +65,34 @@ def main(sysargs=None):
 
     verb = args.verb
     if verb not in verbs:
-        print("Invalid verb '" + verb + "', must be in " + str(verbs))
+        print("Invalid verb '%s', must be in %s" % (verb, str(verbs)))
         return 1
     directory = os.path.abspath(args.directory)
 
     # Walk the directory
     if not os.path.exists(directory):
-        print("Path '" + directory + "' does not exist.")
+        print("Path '%s' does not exist." % directory)
         return 1
-    print("Doing " + verb + " on:", directory)
-    for root, dirs, files in os.walk(directory, topdown=True):
-        for vcs_type, vcs_file in vcs_files.items():
-            if vcs_file in dirs or vcs_file in files:
-                for dir_name in list(dirs):
-                    # Do not process subdirectories
-                    dirs.remove(dir_name)
-                kick_off(vcs_type, verb, root)
-
-    # Wait for all process to finish
-    while jobs:
-        if os.name == 'posix':
-            pid, retcode = os.wait()
-        else:
-            pid, retcode = os.waitpid(jobs.keys()[0], 0)
-        if pid in jobs:
-            job = jobs[pid]
-            print("===\033[32m\033[1m", job['name'], "\033[0m(" +
-                  job['type'] + ") ===")
-            print(job['p'].stdout.read())
-            if retcode != 0:
-                print("\033[31mError exitcode '" + str(retcode) + "'\033[0m")
-            del jobs[pid]
+    print("Doing %s on: %s" % (verb, directory))
+    config = get_filesystem_config(directory)
+    if verb == _STAT:
+        statuslist = multiproject_cmd.cmd_status(config)
+        allstatus = ""
+        for entrystatus in statuslist:
+            if entrystatus['status'] is not None:
+                allstatus += entrystatus['status']
+        print(allstatus, end='')
+    if verb == _DIFF:
+        difflist = multiproject_cmd.cmd_diff(config)
+        alldiff = []
+        for entrydiff in difflist:
+            if entrydiff['diff'] is not None and entrydiff['diff'] != '':
+                alldiff.append(entrydiff['diff'])
+        print('\n'.join(alldiff))
+    if verb == _PULL:
+        multiproject_cmd.cmd_update(config)
+    # if verb == _PUSH
+        # TODO: extend classes or use workaround
     return 0
 
 
